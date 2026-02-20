@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 from datetime import datetime
 import sqlite3
-from fuzzywuzzy import fuzz
+from rapidfuzz import fuzz
 
 app = Flask(__name__)
 
@@ -84,7 +84,7 @@ def analyze_risk(text):
                 'tired of living', 'done with life'
             ],
             'score_base': 0.9,
-            'fuzzy_threshold': 85  # 85% similarity required
+            'fuzzy_threshold': 85
         },
         'grooming': {
             'keywords': ['secret', 'dont tell', "don't tell", 'special friend', 'meet up', 
@@ -138,13 +138,12 @@ def analyze_risk(text):
                 matched_keywords.append(keyword)
             else:
                 # Method 2: Fuzzy matching for variations
-                # Split text into words and phrases to check against keyword
                 words = text_lower.split()
                 
                 # Check individual words
                 for word in words:
                     if len(word) >= 3 and fuzz.ratio(keyword, word) >= fuzzy_threshold:
-                        matches += 0.8  # Slightly lower weight for fuzzy matches
+                        matches += 0.8
                         matched_keywords.append(f"{keyword} (~{word})")
                         break
                 
@@ -153,18 +152,17 @@ def analyze_risk(text):
                 for i in range(len(words) - keyword_word_count + 1):
                     phrase = ' '.join(words[i:i + keyword_word_count])
                     if fuzz.partial_ratio(keyword, phrase) >= fuzzy_threshold:
-                        matches += 0.9  # Higher weight for phrase matches
+                        matches += 0.9
                         matched_keywords.append(f"{keyword} (~{phrase})")
                         break
         
         if matches > 0:
-            # Calculate risk score (higher for multiple matches)
             risk_score = min(data['score_base'] + (matches * 0.03), 1.0)
             detected_risks.append({
                 'risk_type': risk_type, 
                 'risk_score': risk_score, 
                 'matches': matches,
-                'keywords': matched_keywords[:3]  # Store first 3 matched keywords
+                'keywords': matched_keywords[:3]
             })
     
     if not detected_risks:
@@ -175,11 +173,9 @@ def analyze_risk(text):
             'explanation': 'No concerning content detected.'
         }
     
-    # Get highest risk
     highest_risk = max(detected_risks, key=lambda x: x['risk_score'])
     score = highest_risk['risk_score']
     
-    # Determine risk level
     if score >= 0.8:
         risk_level = 'critical'
     elif score >= 0.6:
@@ -189,7 +185,6 @@ def analyze_risk(text):
     else:
         risk_level = 'low'
     
-    # Enhanced explanations
     explanations = {
         'grooming': 'Potential grooming behavior detected. This conversation may contain predatory language.',
         'cyberbullying': 'Harmful language detected. This message contains bullying or threatening content.',
