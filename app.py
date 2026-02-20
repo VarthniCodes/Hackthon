@@ -1,11 +1,11 @@
-from flask import Flask, render_template, request
+from flask import Flask, request, jsonify, render_template
 from transformers import pipeline
 from datetime import datetime
 
 app = Flask(__name__)
 
 # ---------------- LOAD AI MODEL ----------------
-print("Loading AI model... (first run may take time)")
+print("Loading AI model...")
 classifier = pipeline(
     "zero-shot-classification",
     model="facebook/bart-large-mnli"
@@ -21,9 +21,8 @@ labels = [
     "safe conversation"
 ]
 
-# temporary memory only (not saved anywhere)
+# store only alert metadata (privacy safe)
 alerts = []
-chat_history = []   # clears when app restarts
 
 
 # ---------------- AI DETECTION ----------------
@@ -38,7 +37,7 @@ def analyze_text(text):
     elif score > 0.5:
         risk = "MEDIUM"
     else:
-        risk = "LOW"
+        risk = "SAFE"
 
     return risk, category
 
@@ -47,7 +46,7 @@ def analyze_text(text):
 def get_nudge(category, risk, sender):
 
     if sender == "child" and category == "self harm":
-        return "You may be feeling overwhelmed. Talking to a trusted adult can help."
+        return "You may be feeling overwhelmed. Please talk to a trusted adult."
 
     if sender == "child" and category == "emotional distress":
         return "It seems like you're going through something difficult. Talking to someone you trust can help."
@@ -56,7 +55,7 @@ def get_nudge(category, risk, sender):
         return "Some messages can hurt more than we realize. Take a moment before sending."
 
     if sender == "stranger" and category in ["online grooming", "sextortion"]:
-        return "If someone asks for secrets or photos, please talk to a trusted adult."
+        return "If someone asks for secrets or photos, talk to a trusted adult."
 
     if sender == "stranger" and category == "cyberbullying victim":
         return "That message is not okay. Consider telling a trusted adult."
@@ -67,53 +66,46 @@ def get_nudge(category, risk, sender):
     return ""
 
 
-# ---------------- CHILD PAGE ----------------
-@app.route("/", methods=["GET", "POST"])
-def child():
+# ---------------- CHILD DEVICE PAGE ----------------
+@app.route("/")
+def home():
+    return render_template("child.html")
 
-    nudge = ""
-    risk = ""
-    category = ""
 
-    if request.method == "POST":
+# ---------------- API FOR YOUR UI ----------------
+@app.route("/api/analyze", methods=["POST"])
+def api_analyze():
 
-        message = request.form["message"]
-        sender = request.form["sender"]
+    data = request.json
+    text = data.get("text", "")
+    sender = data.get("sender", "")
 
-        # store temporary chat (for UI only)
-        chat_history.append({
+    risk, category = analyze_text(text)
+    nudge = get_nudge(category, risk, sender)
+
+    # privacy-safe parent alerts (no message stored)
+    if sender == "stranger" and risk == "HIGH":
+        alerts.append({
             "sender": sender,
-            "text": message
+            "category": category,
+            "risk": risk,
+            "time": datetime.now().strftime("%H:%M:%S")
         })
 
-        # analyze message
-        risk, category = analyze_text(message)
-        nudge = get_nudge(category, risk, sender)
+    if sender == "child" and category == "self harm":
+        alerts.append({
+            "sender": sender,
+            "category": category,
+            "risk": risk,
+            "time": datetime.now().strftime("%H:%M:%S")
+        })
 
-        # parent alerts (no message text stored)
-        if sender == "stranger" and risk == "HIGH":
-            alerts.append({
-                "sender": sender,
-                "category": category,
-                "risk": risk,
-                "time": datetime.now().strftime("%H:%M:%S")
-            })
-
-        if sender == "child" and category == "self harm":
-            alerts.append({
-                "sender": sender,
-                "category": category,
-                "risk": risk,
-                "time": datetime.now().strftime("%H:%M:%S")
-            })
-
-    return render_template(
-        "child.html",
-        chat=chat_history,
-        nudge=nudge,
-        risk=risk,
-        category=category
-    )
+    return jsonify({
+        "risk_level": risk,
+        "category": category,
+        "nudge": nudge,
+        "explanation": f"{category} detected"
+    })
 
 
 # ---------------- PARENT DASHBOARD ----------------
