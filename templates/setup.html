@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Child Safety Agent - Setup</title>
+    <style>
+        body { font-family: Arial; max-width: 600px; margin: 50px auto; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        h1 { color: #667eea; text-align: center; }
+        button { background: #667eea; color: white; border: none; padding: 15px 30px; border-radius: 8px; cursor: pointer; width: 100%; font-size: 16px; margin-top: 20px; }
+        button:hover { background: #5568d3; }
+        input[type="checkbox"] { margin-right: 10px; }
+        label { display: block; margin: 15px 0; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🛡️ Child Safety Agent</h1>
+        <p><strong>Proactive Protection, Not Surveillance</strong></p>
+        <form id="setupForm">
+            <label><input type="checkbox" id="consent" required> I am the parent/guardian and consent to monitoring</label>
+            <label><input type="checkbox" id="monitoring" checked> Enable monitoring</label>
+            <label>Alert Sensitivity: 
+                <select id="threshold">
+                    <option value="0.4">High</option>
+                    <option value="0.6" selected>Balanced</option>
+                    <option value="0.8">Critical Only</option>
+                </select>
+            </label>
+            <button type="submit">Start Protection</button>
+        </form>
+        <p style="margin-top:20px; text-align:center;">
+            <a href="/child">Child Interface</a> | <a href="/parent">Parent Dashboard</a>
+        </p>
+    </div>
+    <script>
+        document.getElementById('setupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const consent = document.getElementById('consent').checked;
+            const monitoring = document.getElementById('monitoring').checked;
+            const threshold = parseFloat(document.getElementById('threshold').value);
+            if (!consent) { alert('Parent consent required'); return; }
+            await fetch('/api/settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({parent_consent: 1, monitoring_enabled: monitoring ? 1 : 0, alert_threshold: threshold})
+            });
+            alert('Setup complete!');
+            window.location.href = '/parent';
+        });
+    </script>
+</body>
+</html>
