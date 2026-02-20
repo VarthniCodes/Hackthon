@@ -1,32 +1,45 @@
-# Python cache files
+# ---------------- Python cache files ----------------
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 
-# Environment variables (secrets)
+# ---------------- Virtual environments ----------------
+venv/
+.env/
+env/
+ENV/
+
+# ---------------- Environment variables (secrets) ----------------
 .env
 
-# Database files
+# ---------------- Database files ----------------
 *.db
+*.sqlite3
 safety.db
 
-# Logs
+# ---------------- Logs ----------------
 *.log
 
-# System files
+# ---------------- Temporary files ----------------
+*.tmp
+*.temp
+
+# ---------------- System files ----------------
 .DS_Store
 Thumbs.db
 
-# Virtual environment
-venv/
-.env/
-
-# IDE files
+# ---------------- IDE / Editor files ----------------
 .vscode/
 .idea/
 
-# Node modules (future frontend)
+# ---------------- Node / Frontend (future use) ----------------
 node_modules/
 
-# Temporary files
-*.tmp
+# ---------------- Build / distribution ----------------
+build/
+dist/
+*.egg-info/
+
+# ---------------- Jupyter Notebook checkpoints (optional) ----------------
+.ipynb_checkpoints/
