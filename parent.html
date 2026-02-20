@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Parent Dashboard</title>
+    <style>
+        body { font-family: Arial; max-width: 1200px; margin: 50px auto; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); margin-bottom: 20px; }
+        h1 { color: #667eea; text-align: center; }
+        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 20px; border-radius: 15px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .stat-card h3 { font-size: 2.5rem; color: #667eea; margin: 10px 0; }
+        .alert-item { padding: 15px; background: #f8f9fa; border-radius: 10px; margin-bottom: 15px; border-left: 4px solid #dc3545; }
+        .risk-high { border-left-color: #fd7e14; }
+        .risk-critical { border-left-color: #dc3545; }
+        button { background: #667eea; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; margin: 10px 5px; }
+    </style>
+</head>
+<body>
+    <h1 style="color:white;">🛡️ Parent Dashboard</h1>
+    
+    <div class="stats">
+        <div class="stat-card">
+            <p>Total Alerts</p>
+            <h3 id="totalAlerts">0</h3>
+        </div>
+        <div class="stat-card">
+            <p>Critical Alerts</p>
+            <h3 id="criticalAlerts" style="color:#dc3545;">0</h3>
+        </div>
+        <div class="stat-card">
+            <p>Monitoring Status</p>
+            <h3 id="status" style="font-size:1.5rem;">Active</h3>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Recent Alerts</h2>
+        <div id="alertsList">
+            <p style="text-align:center; color:#6c757d;">No alerts yet. System is monitoring...</p>
+        </div>
+    </div>
+
+    <div style="text-align:center;">
+        <button onclick="refreshData()">Refresh Data</button>
+        <a href="/child"><button>Child Interface</button></a>
+        <a href="/"><button>Setup</button></a>
+    </div>
+
+    <script>
+        async function loadData() {
+            const alertsRes = await fetch('/api/alerts');
+            const alerts = await alertsRes.json();
+            
+            const statsRes = await fetch('/api/stats');
+            const stats = await statsRes.json();
+            
+            document.getElementById('totalAlerts').textContent = stats.total_alerts;
+            document.getElementById('criticalAlerts').textContent = stats.critical_alerts;
+            
+            const container = document.getElementById('alertsList');
+            if (alerts.length === 0) {
+                container.innerHTML = '<p style="text-align:center; color:#6c757d;">No alerts yet. System is monitoring...</p>';
+            } else {
+                container.innerHTML = alerts.map(alert => `
+                    <div class="alert-item risk-${alert.risk_level}">
+                        <strong>${alert.risk_type.toUpperCase()}</strong> - ${alert.risk_level} 
+                        <span style="float:right;">Risk: ${Math.round(alert.risk_score * 100)}%</span>
+                        <p style="margin:10px 0;">${alert.content}</p>
+                        <small>${alert.context}</small>
+                        <br><small style="color:#6c757d;">${new Date(alert.timestamp).toLocaleString()}</small>
+                    </div>
+                `).join('');
+            }
+        }
+        
+        function refreshData() {
+            loadData();
+        }
+        
+        loadData();
+        setInterval(loadData, 5000);
+    </script>
+</body>
+</html>

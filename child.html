@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Child Interface</title>
+    <style>
+        body { font-family: Arial; max-width: 800px; margin: 50px auto; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .chat-box { background: white; padding: 20px; height: 400px; overflow-y: auto; border-radius: 15px; margin-bottom: 20px; }
+        .message { padding: 10px; margin: 10px 0; border-radius: 10px; max-width: 70%; }
+        .user-message { background: #667eea; color: white; margin-left: auto; }
+        input { width: 80%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; }
+        button { background: #667eea; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; margin-left: 10px; }
+        .nudge { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 40px; border-radius: 15px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); display: none; z-index: 1000; }
+        .overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: none; z-index: 999; }
+    </style>
+</head>
+<body>
+    <div class="chat-box" id="chatBox">
+        <div class="message">Welcome! Type a message to test the safety system.</div>
+    </div>
+    <input type="text" id="messageInput" placeholder="Type a message...">
+    <button onclick="sendMessage()">Send</button>
+    <p><a href="/" style="color:white;">Setup</a> | <a href="/parent" style="color:white;">Parent Dashboard</a></p>
+    
+    <div class="overlay" id="overlay"></div>
+    <div class="nudge" id="nudge">
+        <h3 style="color:#dc3545;">⚠️ Safety Alert</h3>
+        <p id="nudgeMessage"></p>
+        <button onclick="closeNudge()">I Understand</button>
+    </div>
+
+    <script>
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            if (!message) return;
+            
+            const chatBox = document.getElementById('chatBox');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message user-message';
+            msgDiv.textContent = message;
+            chatBox.appendChild(msgDiv);
+            input.value = '';
+            
+            const response = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({text: message})
+            });
+            const analysis = await response.json();
+            
+            if (analysis.risk_score >= 0.6) {
+                document.getElementById('nudgeMessage').textContent = analysis.explanation;
+                document.getElementById('overlay').style.display = 'block';
+                document.getElementById('nudge').style.display = 'block';
+            }
+        }
+        
+        function closeNudge() {
+            document.getElementById('overlay').style.display = 'none';
+            document.getElementById('nudge').style.display = 'none';
+        }
+        
+        document.getElementById('messageInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+    </script>
+</body>
+</html>
