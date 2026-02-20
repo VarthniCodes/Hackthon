@@ -4,22 +4,24 @@
 <title>Neoclaw Child Device</title>
 
 <style>
-body { font-family: Arial; background:#ece5dd; margin:0; }
-.header { background:#075e54; color:white; padding:15px; text-align:center; }
-.chat { height:70vh; overflow:auto; padding:20px; }
-.message { max-width:60%; padding:10px; margin:10px; border-radius:12px; }
-.child { background:#dcf8c6; float:right; clear:both; }
-.stranger { background:white; float:left; clear:both; }
-.alert { background:#ffd1d1; padding:8px; margin:10px; clear:both; border:1px solid red; }
-.controls { position:fixed; bottom:0; width:100%; background:white; padding:10px; display:flex; gap:10px; }
-input { flex:1; padding:10px; }
-button { padding:10px; }
+body {font-family:Arial; background:#ece5dd; margin:0;}
+.header {background:#075e54; color:white; padding:15px; text-align:center;}
+.chat {height:70vh; overflow:auto; padding:20px;}
+.message {max-width:60%; padding:10px; margin:10px; border-radius:12px;}
+.child {background:#dcf8c6; float:right; clear:both;}
+.stranger {background:white; float:left; clear:both;}
+.alert {background:#ffd1d1; padding:8px; margin:10px; clear:both; border:1px solid red;}
+.controls {position:fixed; bottom:0; width:100%; background:white; padding:10px; display:flex; gap:10px;}
+input {flex:1; padding:10px;}
+button {padding:10px;}
 </style>
 </head>
 
 <body>
 
-<div class="header">Neoclaw — Child Device Monitor</div>
+<div class="header">
+Neoclaw — Child Device Monitoring
+</div>
 
 <div id="chat" class="chat"></div>
 
@@ -31,42 +33,42 @@ button { padding:10px; }
 
 <script>
 async function send(sender){
-    const input=document.getElementById("msg");
-    const text=input.value.trim();
-    if(!text) return;
-    input.value="";
+  const input=document.getElementById("msg");
+  const text=input.value.trim();
+  if(!text) return;
 
-    addMessage(text,sender);
+  input.value="";
+  addMessage(text,sender);
 
-    const res=await fetch("/api/analyze",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({text:text,sender:sender})
-    });
+  const res=await fetch("/api/analyze",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({text:text,sender:sender})
+  });
 
-    const data=await res.json();
+  const data=await res.json();
 
-    if(data.risk_level!=="safe"){
-        addAlert(data.explanation,data.risk_level);
-    }
+  if(data.risk_level!=="safe"){
+    addAlert(data.explanation,data.risk_level);
+  }
 
-    if(data.nudge){
-        addAlert(data.nudge,"Support");
-    }
+  if(data.nudge){
+    addAlert(data.nudge,"Support Message");
+  }
 }
 
 function addMessage(text,sender){
-    const div=document.createElement("div");
-    div.className="message "+sender;
-    div.innerText=(sender==="child"?"👶 Child: ":"🧑 Stranger: ")+text;
-    document.getElementById("chat").appendChild(div);
+  const div=document.createElement("div");
+  div.className="message "+sender;
+  div.innerText=(sender==="child"?"👶 Child: ":"🧑 Stranger: ")+text;
+  document.getElementById("chat").appendChild(div);
 }
 
 function addAlert(text,type){
-    const div=document.createElement("div");
-    div.className="alert";
-    div.innerText="⚠ "+type+"\n"+text;
-    document.getElementById("chat").appendChild(div);
+  const div=document.createElement("div");
+  div.className="alert";
+  div.innerText="⚠ "+type+"\n"+text;
+  document.getElementById("chat").appendChild(div);
 }
 </script>
 
