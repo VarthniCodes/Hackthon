@@ -1,4 +1,4 @@
 Flask==3.0.0
 gunicorn==21.2.0
-rapidfuzz>=3.9
-
+rapidfuzz==3.10.0
+textblob==0.17.1
