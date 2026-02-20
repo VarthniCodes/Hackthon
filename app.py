@@ -1,25 +1,11 @@
 from flask import Flask, request, jsonify, render_template
 from rapidfuzz import fuzz
-from transformers import pipeline
 import sqlite3
 from datetime import datetime
+import os
 
 app = Flask(__name__)
 DB_NAME = "safety.db"
-
-# =====================================================
-# LOAD AI MODEL (Meaning Detection)
-# =====================================================
-
-print("Loading AI safety model (first run may take time)...")
-
-ai_classifier = pipeline(
-    "text-classification",
-    model="unitary/toxic-bert",
-    top_k=None
-)
-
-print("AI model ready")
 
 # =====================================================
 # DATABASE
@@ -54,8 +40,8 @@ init_db()
 
 PATTERNS = {
     "self_harm": [
-        "suicide", "kill myself", "want to die", "end my life",
-        "cut myself", "i cant go on", "i feel hopeless"
+        "suicide", "kill myself", "want to die",
+        "end my life", "cut myself", "i cant go on"
     ],
     "grooming": [
         "dont tell", "our secret", "keep this secret",
@@ -63,7 +49,7 @@ PATTERNS = {
     ],
     "cyberbullying": [
         "worthless", "loser", "ugly", "kill yourself",
-        "you are nothing", "stupid", "idiot"
+        "stupid", "idiot", "you are nothing"
     ],
     "sextortion": [
         "send nudes", "naked pic", "leak your pics"
@@ -72,8 +58,13 @@ PATTERNS = {
     "scam": ["send money", "bitcoin", "gift card"]
 }
 
+NEGATIVE_EMOTION_WORDS = [
+    "sad", "hopeless", "alone", "depressed", "empty",
+    "worthless", "angry", "hurt", "crying"
+]
+
 # =====================================================
-# 1️⃣ KEYWORD DETECTION
+# KEYWORD DETECTION
 # =====================================================
 
 def keyword_detection(text):
@@ -87,7 +78,7 @@ def keyword_detection(text):
     return {"risk_type": "none", "score": 0}
 
 # =====================================================
-# 2️⃣ FUZZY DETECTION (TYPO HANDLING)
+# FUZZY DETECTION (TYPO HANDLING)
 # =====================================================
 
 def fuzzy_detection(text):
@@ -103,21 +94,17 @@ def fuzzy_detection(text):
     return {"risk_type": "none", "score": 0}
 
 # =====================================================
-# 3️⃣ AI MEANING DETECTION
+# LIGHTWEIGHT "AI" MEANING DETECTION
 # =====================================================
 
-def ai_detection(text):
-    try:
-        result = ai_classifier(text)[0]
+def intent_detection(text):
+    text_lower = text.lower()
 
-        for item in result:
-            if item["label"] in ["toxic", "severe_toxic", "insult", "threat"] and item["score"] > 0.6:
-                return {"risk_type": "cyberbullying", "score": item["score"]}
+    for word in NEGATIVE_EMOTION_WORDS:
+        if word in text_lower:
+            return {"risk_type": "emotional_distress", "score": 0.5}
 
-        return {"risk_type": "none", "score": 0}
-
-    except:
-        return {"risk_type": "none", "score": 0}
+    return {"risk_type": "none", "score": 0}
 
 # =====================================================
 # HYBRID RISK ENGINE
@@ -125,13 +112,13 @@ def ai_detection(text):
 
 def analyze_risk(text):
 
-    keyword_result = keyword_detection(text)
-    fuzzy_result = fuzzy_detection(text)
-    ai_result = ai_detection(text)
+    results = [
+        keyword_detection(text),
+        fuzzy_detection(text),
+        intent_detection(text)
+    ]
 
-    results = [keyword_result, fuzzy_result, ai_result]
     best = max(results, key=lambda x: x["score"])
-
     score = best["score"]
 
     if score >= 0.8:
@@ -150,7 +137,7 @@ def analyze_risk(text):
     }
 
 # =====================================================
-# INTERVENTION ENGINE (CORE SAFETY LOGIC)
+# INTERVENTION ENGINE
 # =====================================================
 
 def decide_action(risk, sender):
@@ -163,51 +150,36 @@ def decide_action(risk, sender):
         "parent_alert": False
     }
 
-    # --------------------------------
-    # CHILD DISTRESS / SELF HARM
-    # --------------------------------
     if sender == "child" and risk_type == "self_harm":
         action["child_nudge"] = (
-            "It sounds like you're going through something difficult. "
-            "You don’t have to handle this alone. Please talk to a trusted adult."
+            "You don’t have to handle this alone. "
+            "Please talk to a trusted adult."
         )
         action["parent_alert"] = True
 
-    # --------------------------------
-    # STRANGER BULLYING CHILD
-    # --------------------------------
     elif sender == "stranger" and risk_type == "cyberbullying":
         action["child_nudge"] = (
             "The way someone is speaking to you isn’t okay. "
-            "You deserve respect. Consider telling a trusted adult."
+            "You deserve respect."
         )
         action["parent_alert"] = True
 
-    # --------------------------------
-    # CHILD BULLYING OTHERS
-    # --------------------------------
     elif sender == "child" and risk_type == "cyberbullying":
         action["child_nudge"] = (
             "Some messages can hurt more than we realize. "
             "Take a moment before sending messages."
         )
 
-    # --------------------------------
-    # GROOMING / SEXTORTION
-    # --------------------------------
     elif sender == "stranger" and risk_type in ["grooming", "sextortion"]:
         action["child_nudge"] = (
-            "You should never keep secrets from trusted adults or share personal information. "
-            "Please talk to a parent or trusted adult."
+            "You should never keep secrets or share personal information. "
+            "Please talk to a trusted adult."
         )
         action["parent_alert"] = True
 
-    # --------------------------------
-    # MEDIUM EMOTIONAL DISTRESS
-    # --------------------------------
     elif sender == "child" and level == "medium":
         action["child_nudge"] = (
-            "It seems you might be feeling upset. Talking to someone you trust can help."
+            "It seems you might be upset. Talking to someone you trust can help."
         )
 
     return action
@@ -234,7 +206,6 @@ def analyze():
     risk = analyze_risk(text)
     action = decide_action(risk, sender)
 
-    # STORE ALERT IF REQUIRED
     if action["parent_alert"]:
         conn = get_db()
         c = conn.cursor()
@@ -251,10 +222,7 @@ def analyze():
         conn.commit()
         conn.close()
 
-    return jsonify({
-        **risk,
-        **action
-    })
+    return jsonify({**risk, **action})
 
 @app.route("/api/alerts")
 def get_alerts():
@@ -273,15 +241,12 @@ def get_alerts():
             "sender": r[3],
             "risk_type": r[4],
             "risk_score": r[5]
-        }
-        for r in rows
+        } for r in rows
     ])
 
 # =====================================================
-# RUN APP
+# RUN (Render compatible)
 # =====================================================
-
-import os
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
