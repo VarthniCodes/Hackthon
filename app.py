@@ -1,7 +1,6 @@
 from flask import Flask, render_template, request, jsonify
 from datetime import datetime
 import sqlite3
-from rapidfuzz import fuzz
 
 app = Flask(__name__)
 DB_NAME = "safety.db"
@@ -19,7 +18,7 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
 
-    # alerts (parent receives alert + nudge)
+    # alerts table
     c.execute("""
     CREATE TABLE IF NOT EXISTS alerts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,7 +33,7 @@ def init_db():
     )
     """)
 
-    # settings
+    # settings table
     c.execute("""
     CREATE TABLE IF NOT EXISTS settings (
         id INTEGER PRIMARY KEY,
@@ -60,24 +59,43 @@ init_db()
 # =========================
 
 NUDGE_MESSAGES = {
+
     "self_harm": {
         "critical": "It sounds like you're going through something very painful. Please talk to a trusted adult immediately. You matter more than you know.",
         "high": "I noticed you might be feeling overwhelmed. Talking to a trusted adult can really help."
     },
+
+    # stranger bullying child
+    "cyberbullying_victim": {
+        "high": "The way someone is speaking to you isn’t okay. You deserve respect. Consider telling a trusted adult."
+    },
+
+    # child bullying others
+    "cyberbullying_aggressor": {
+        "high": "Some messages can hurt others. Taking a moment before sending can help. If you're upset, talking to someone you trust may help more."
+    },
+
     "grooming": {
         "high": "When someone asks you to keep secrets or share personal photos, that's a warning sign. Please talk to a trusted adult."
     },
-    "cyberbullying": {
-        "high": "The way someone is speaking to you isn’t okay. You deserve respect. Consider telling a trusted adult."
-    },
+
     "sextortion": {
         "high": "You should never feel pressured to share personal photos. Please talk to a trusted adult immediately."
     },
+
     "soft": "If any conversation makes you uncomfortable, it's always okay to talk to a trusted adult."
 }
 
 
-def get_nudge(risk_type, risk_level):
+def get_nudge(risk_type, risk_level, sender=None):
+
+    # special cyberbullying logic
+    if risk_type == "cyberbullying":
+        if sender == "stranger":
+            return NUDGE_MESSAGES["cyberbullying_victim"].get(risk_level)
+        if sender == "child":
+            return NUDGE_MESSAGES["cyberbullying_aggressor"].get(risk_level)
+
     if risk_type in NUDGE_MESSAGES:
         return NUDGE_MESSAGES[risk_type].get(risk_level)
 
@@ -88,60 +106,29 @@ def get_nudge(risk_type, risk_level):
 
 
 # =========================
-# RISK ANALYSIS ENGINE (YOUR ORIGINAL STRONG VERSION)
+# RISK DETECTION
 # =========================
+
+PATTERNS = {
+    "self_harm": ["suicide","kill myself","end my life","cut myself","want to die","better off dead"],
+    "grooming": ["dont tell","our secret","keep this secret","send photo","meet alone","mature for your age"],
+    "cyberbullying": ["kill yourself","loser","worthless","ugly","nobody likes you"],
+    "sextortion": ["send nudes","naked pic","blackmail","leak your pics"],
+    "drugs": ["buy weed","cocaine","heroin","mdma"],
+    "scam": ["send money","bitcoin","gift card"]
+}
+
 
 def analyze_risk(text):
     text_lower = text.lower()
 
-    patterns = {
-        "self_harm": {
-            "keywords": [
-                "suicide","kill myself","end my life","self harm",
-                "want to die","better off dead","cut myself"
-            ],
-            "score_base": 0.9
-        },
-        "grooming": {
-            "keywords": [
-                "dont tell","our secret","keep this secret",
-                "send photo","mature for your age","meet alone"
-            ],
-            "score_base": 0.8
-        },
-        "cyberbullying": {
-            "keywords": [
-                "kill yourself","loser","worthless","ugly","nobody likes you"
-            ],
-            "score_base": 0.7
-        },
-        "sextortion": {
-            "keywords": [
-                "send nudes","naked pic","blackmail","leak your pics"
-            ],
-            "score_base": 0.85
-        },
-        "drugs": {
-            "keywords": ["buy weed","cocaine","heroin","mdma"],
-            "score_base": 0.75
-        },
-        "scam": {
-            "keywords": ["send money","bitcoin","gift card"],
-            "score_base": 0.6
-        }
-    }
-
     detected = []
 
-    for risk_type, data in patterns.items():
-        matches = 0
-
-        for keyword in data["keywords"]:
-            if keyword in text_lower:
-                matches += 1
+    for risk_type, keywords in PATTERNS.items():
+        matches = sum(1 for k in keywords if k in text_lower)
 
         if matches:
-            score = min(data["score_base"] + matches * 0.05, 1.0)
+            score = min(0.5 + matches * 0.1, 1.0)
             detected.append({"risk_type": risk_type, "score": score})
 
     if not detected:
@@ -149,8 +136,7 @@ def analyze_risk(text):
             "risk_type": "none",
             "risk_level": "safe",
             "risk_score": 0,
-            "explanation": "No concerning content detected.",
-            "nudge": None
+            "explanation": "No concerning content detected."
         }
 
     highest = max(detected, key=lambda x: x["score"])
@@ -165,14 +151,11 @@ def analyze_risk(text):
     else:
         level = "low"
 
-    nudge = get_nudge(highest["risk_type"], level)
-
     return {
         "risk_type": highest["risk_type"],
         "risk_level": level,
         "risk_score": score,
-        "explanation": f"{highest['risk_type']} risk detected",
-        "nudge": nudge
+        "explanation": f"{highest['risk_type']} risk detected"
     }
 
 
@@ -182,7 +165,7 @@ def analyze_risk(text):
 
 @app.route("/")
 def index():
-    """Consent first → then child device."""
+    # show consent first
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT parent_consent FROM settings WHERE id=1")
@@ -200,6 +183,11 @@ def index():
 @app.route("/parent")
 def parent_dashboard():
     return render_template("parent.html")
+
+
+@app.route("/setup")
+def setup_page():
+    return render_template("setup.html")
 
 
 @app.route("/api/consent", methods=["POST"])
@@ -222,6 +210,10 @@ def analyze():
         return jsonify({"error": "No text provided"}), 400
 
     analysis = analyze_risk(text)
+
+    # choose correct nudge based on sender
+    nudge = get_nudge(analysis["risk_type"], analysis["risk_level"], sender)
+    analysis["nudge"] = nudge
     analysis["sender"] = sender
 
     HIGH_RISK = ["grooming","sextortion","self_harm","cyberbullying"]
@@ -274,6 +266,35 @@ def get_alerts():
     } for r in rows]
 
     return jsonify(alerts)
+
+
+@app.route("/api/settings", methods=["GET","POST"])
+def settings():
+    conn = get_db()
+    c = conn.cursor()
+
+    if request.method == "POST":
+        data = request.json
+        c.execute("""
+        UPDATE settings SET parent_consent=?, monitoring_enabled=?, alert_threshold=? WHERE id=1
+        """, (
+            data.get("parent_consent",1),
+            data.get("monitoring_enabled",1),
+            data.get("alert_threshold",0.6)
+        ))
+        conn.commit()
+        conn.close()
+        return jsonify({"success":True})
+
+    c.execute("SELECT * FROM settings WHERE id=1")
+    row = c.fetchone()
+    conn.close()
+
+    return jsonify({
+        "parent_consent":row[1],
+        "monitoring_enabled":row[2],
+        "alert_threshold":row[3]
+    })
 
 
 @app.route("/api/stats")
