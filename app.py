@@ -45,10 +45,11 @@ def init_db():
         )
         """)
 
-        # Default settings (monitoring ON)
+        # Default settings
         c.execute("SELECT * FROM settings WHERE id=1")
         if not c.fetchone():
-            c.execute("INSERT INTO settings VALUES (1,1,1,0.6)")
+            # consent OFF initially, monitoring OFF
+            c.execute("INSERT INTO settings VALUES (1,0,0,0.6)")
 
 
 init_db()
@@ -187,7 +188,31 @@ def analyze_risk(text):
 
 @app.route("/")
 def index():
+    """Show consent page first, then child device UI."""
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("SELECT parent_consent FROM settings WHERE id=1")
+        row = c.fetchone()
+
+    consent_given = row[0] if row else 0
+
+    if not consent_given:
+        return render_template("consent.html")
+
     return render_template("child.html")
+
+
+@app.route("/api/consent", methods=["POST"])
+def give_consent():
+    """Parent gives consent → enable monitoring."""
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("""
+            UPDATE settings
+            SET parent_consent=1, monitoring_enabled=1
+            WHERE id=1
+        """)
+    return jsonify({"success": True})
 
 
 @app.route("/api/analyze", methods=["POST"])
@@ -196,6 +221,15 @@ def analyze():
 
     if not data:
         return jsonify({"error": "Invalid JSON"}), 400
+
+    # Check consent before monitoring
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("SELECT parent_consent FROM settings WHERE id=1")
+        consent = c.fetchone()[0]
+
+    if not consent:
+        return jsonify({"error": "Monitoring not enabled"}), 403
 
     text = data.get("text", "").strip()
     sender = data.get("sender", "unknown")
@@ -211,12 +245,10 @@ def analyze():
 
     with get_db() as conn:
         c = conn.cursor()
-
         c.execute(
             "SELECT monitoring_enabled, alert_threshold FROM settings WHERE id=1"
         )
-        settings = c.fetchone() or (1, 0.6)
-        monitoring_enabled, threshold = settings
+        monitoring_enabled, threshold = c.fetchone()
 
         if (
             analysis["risk_type"] in HIGH_RISK_TYPES or
@@ -242,6 +274,7 @@ def analyze():
 
 @app.route("/api/alerts", methods=["GET"])
 def get_alerts():
+    """Parent dashboard alerts."""
     with get_db() as conn:
         c = conn.cursor()
         c.execute("SELECT * FROM alerts ORDER BY timestamp DESC LIMIT 50")
