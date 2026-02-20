@@ -1,54 +1,30 @@
+
+Paste:
+
+```html
 <!DOCTYPE html>
 <html>
 <head>
 <title>Parent Dashboard</title>
-
-<style>
-body {font-family:Arial; margin:40px; background:#f4f4f4;}
-.card {background:white; padding:20px; margin:15px 0; border-radius:10px; box-shadow:0 0 5px rgba(0,0,0,0.2);}
-</style>
 </head>
 
 <body>
 
-<h1>👨‍👩‍👧 Parent Safety Dashboard</h1>
-<p>Live alerts from child's device</p>
+<h2>👨‍👩‍👦 Parent Alert Dashboard</h2>
 
-<div id="alerts"></div>
+{% if alerts %}
+<ul>
+{% for alert in alerts %}
+<li>
+{{alert.time}} | {{alert.sender}} | {{alert.risk}} | {{alert.category}}
+</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>No alerts yet</p>
+{% endif %}
 
-<script>
-async function loadAlerts(){
-  const res=await fetch("/api/alerts");
-  const data=await res.json();
-
-  const container=document.getElementById("alerts");
-  container.innerHTML="";
-
-  if(data.length===0){
-    container.innerHTML="<p>No alerts yet.</p>";
-    return;
-  }
-
-  data.forEach(a=>{
-    const div=document.createElement("div");
-    div.className="card";
-
-    div.innerHTML=`
-      <strong>Risk:</strong> ${a.risk_type} (${a.risk_level})<br>
-      <strong>Sender:</strong> ${a.sender}<br>
-      <strong>Message:</strong> ${a.content}<br>
-      <strong>Time:</strong> ${a.timestamp}<br>
-      <strong>System Note:</strong> ${a.context}<br>
-      <strong>Nudge Given to Child:</strong> ${a.nudge || "None"}
-    `;
-
-    container.appendChild(div);
-  });
-}
-
-loadAlerts();
-setInterval(loadAlerts,3000);
-</script>
+<a href="/">Back</a>
 
 </body>
 </html>
