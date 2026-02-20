@@ -1,68 +1,33 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Parental Consent Required</title>
-
+<title>Parental Consent</title>
 <style>
-body {
-  font-family: Arial, sans-serif;
-  display:flex;
-  height:100vh;
-  justify-content:center;
-  align-items:center;
-  background:#f4f4f4;
-}
-
-.card {
-  background:white;
-  padding:30px;
-  width:420px;
-  border-radius:12px;
-  box-shadow:0 0 12px rgba(0,0,0,0.2);
-}
-
-h2 { margin-top:0; }
-
-button {
-  margin-top:20px;
-  padding:14px;
-  width:100%;
-  background:#075e54;
-  color:white;
-  border:none;
-  border-radius:6px;
-  cursor:pointer;
-  font-size:16px;
-}
+body {font-family:Arial; display:flex; height:100vh; justify-content:center; align-items:center; background:#f4f4f4;}
+.card {background:white; padding:30px; width:420px; border-radius:10px; box-shadow:0 0 10px rgba(0,0,0,0.2);}
+button {margin-top:20px; padding:14px; width:100%; background:#075e54; color:white; border:none; cursor:pointer;}
 </style>
 </head>
 
 <body>
-
 <div class="card">
-
 <h2>Parental Consent Required</h2>
 
 <p>
 Neoclaw monitors conversations on the child’s device to detect potential safety risks
-such as grooming, bullying, or emotional distress.
+like grooming, bullying, or emotional distress.
 </p>
 
 <p>
-Monitoring will only start after permission from a parent or guardian.
-</p>
-
-<p>
-By clicking below, you confirm you are a parent/guardian and consent to enable safety monitoring.
+Monitoring will start only after parent/guardian approval.
 </p>
 
 <button onclick="giveConsent()">I Give Consent</button>
-
 </div>
 
 <script>
 async function giveConsent(){
-  await fetch("/api/consent", { method:"POST" });
+  await fetch("/api/consent",{method:"POST"});
   window.location.href="/";
 }
 </script>
