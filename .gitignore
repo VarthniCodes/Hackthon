@@ -1,0 +1,32 @@
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment variables (secrets)
+.env
+
+# Database files
+*.db
+safety.db
+
+# Logs
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Virtual environment
+venv/
+.env/
+
+# IDE files
+.vscode/
+.idea/
+
+# Node modules (future frontend)
+node_modules/
+
+# Temporary files
+*.tmp
