@@ -20,7 +20,7 @@ def init_db():
     with get_db() as conn:
         c = conn.cursor()
 
-        # alerts table
+        # Alerts table (parent receives alert + nudge)
         c.execute("""
         CREATE TABLE IF NOT EXISTS alerts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,11 +30,12 @@ def init_db():
             risk_type TEXT,
             risk_level TEXT,
             risk_score REAL,
-            context TEXT
+            context TEXT,
+            nudge TEXT
         )
         """)
 
-        # settings table
+        # Settings table
         c.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             id INTEGER PRIMARY KEY,
@@ -44,10 +45,9 @@ def init_db():
         )
         """)
 
-        # insert default settings if not exist
+        # Default settings (monitoring ON)
         c.execute("SELECT * FROM settings WHERE id=1")
         if not c.fetchone():
-            # monitoring ON by default
             c.execute("INSERT INTO settings VALUES (1,1,1,0.6)")
 
 
@@ -87,7 +87,7 @@ def get_nudge(risk_type, risk_level):
 
 
 # =========================
-# RISK DETECTION
+# RISK DETECTION ENGINE
 # =========================
 
 PATTERNS = {
@@ -206,7 +206,7 @@ def analyze():
     analysis = analyze_risk(text)
     analysis["sender"] = sender
 
-    # Always alert for high-risk categories
+    # High-risk categories always alert parent
     HIGH_RISK_TYPES = ["grooming", "sextortion", "self_harm", "cyberbullying"]
 
     with get_db() as conn:
@@ -224,8 +224,8 @@ def analyze():
         ):
             c.execute("""
                 INSERT INTO alerts
-                (timestamp, content, sender, risk_type, risk_level, risk_score, context)
-                VALUES (?,?,?,?,?,?,?)
+                (timestamp, content, sender, risk_type, risk_level, risk_score, context, nudge)
+                VALUES (?,?,?,?,?,?,?,?)
             """, (
                 datetime.now().isoformat(),
                 text,
@@ -233,7 +233,8 @@ def analyze():
                 analysis["risk_type"],
                 analysis["risk_level"],
                 analysis["risk_score"],
-                analysis["explanation"]
+                analysis["explanation"],
+                analysis["nudge"]
             ))
 
     return jsonify(analysis)
@@ -256,6 +257,7 @@ def get_alerts():
             "risk_level": r[5],
             "risk_score": r[6],
             "context": r[7],
+            "nudge": r[8],
         }
         for r in rows
     ]
