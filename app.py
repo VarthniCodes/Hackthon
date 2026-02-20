@@ -2,11 +2,8 @@ from flask import Flask, render_template, request, jsonify
 from datetime import datetime
 import sqlite3
 from rapidfuzz import fuzz
-import logging
 
 app = Flask(__name__)
-
-logging.basicConfig(level=logging.INFO)
 
 DB_NAME = "safety.db"
 
@@ -28,6 +25,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT,
             content TEXT,
+            sender TEXT,
             risk_type TEXT,
             risk_level TEXT,
             risk_score REAL,
@@ -46,102 +44,55 @@ def init_db():
 
         c.execute("SELECT * FROM settings WHERE id=1")
         if not c.fetchone():
-            c.execute(
-                "INSERT INTO settings VALUES (1, 0, 0, 0.6)"
-            )
+            c.execute("INSERT INTO settings VALUES (1,0,0,0.6)")
 
 init_db()
 
 
 # =========================
-# RISK ANALYSIS ENGINE
+# INTERVENTION NUDGES
 # =========================
 
-PATTERNS = {
+NUDGE_MESSAGES = {
     "self_harm": {
-        "keywords": [
-            "suicide", "suicidal", "kill myself", "end my life",
-            "take my life", "self harm", "self injury", "cut myself",
-            "hurt myself", "harm myself", "burn myself",
-            "want to die", "wish i was dead", "better off dead",
-            "no reason to live", "nothing to live for",
-            "tired of living", "done with life",
-            "hang myself", "overdose", "jump off"
-        ],
-        "score_base": 0.9,
-        "fuzzy_threshold": 88
-    },
-    "grooming": {
-        "keywords": [
-            "dont tell", "our secret", "special friend",
-            "mature for your age", "meet up", "send photo",
-            "trust me", "come over", "pick you up"
-        ],
-        "score_base": 0.8,
-        "fuzzy_threshold": 85
+        "critical": "It sounds like you're going through something really painful. You don’t have to handle this alone. Please talk to a trusted adult as soon as possible. You matter more than you know.",
+        "high": "I noticed you might be feeling overwhelmed. Talking to a trusted adult can really help. You don’t have to deal with this alone."
     },
     "cyberbullying": {
-        "keywords": [
-            "kill yourself", "kys", "loser", "worthless",
-            "nobody likes you", "everyone hates you",
-            "ugly", "pathetic", "go die"
-        ],
-        "score_base": 0.7,
-        "fuzzy_threshold": 85
+        "high": "The way someone is speaking to you isn’t okay. You deserve respect. Consider saving the messages and telling a trusted adult."
     },
-    "drugs": {
-        "keywords": [
-            "buy weed", "get high", "drug dealer",
-            "cocaine", "heroin", "mdma", "meth", "lsd"
-        ],
-        "score_base": 0.75,
-        "fuzzy_threshold": 85
+    "grooming": {
+        "high": "When someone asks you to keep secrets or share personal photos, that’s a warning sign. Please talk to a trusted adult right away."
     },
     "sextortion": {
-        "keywords": [
-            "send nudes", "naked pic", "blackmail",
-            "expose you", "leak your pics"
-        ],
-        "score_base": 0.85,
-        "fuzzy_threshold": 85
+        "high": "You should never feel pressured to share personal photos. Please talk to a trusted adult immediately."
     },
-    "scam": {
-        "keywords": [
-            "send money", "bitcoin", "gift card",
-            "wire transfer", "urgent payment"
-        ],
-        "score_base": 0.6,
-        "fuzzy_threshold": 85
-    }
+    "soft": "If any conversation makes you uncomfortable, it’s always okay to talk to a trusted adult."
 }
 
 
-def normalize_score(base, matches, text_length):
-    """Reduce false positives from long text."""
-    density = matches / max(text_length / 20, 1)
-    score = base + (density * 0.25)
-    return min(score, 1.0)
+def get_nudge(risk_type, risk_level):
+    if risk_type in NUDGE_MESSAGES:
+        return NUDGE_MESSAGES[risk_type].get(risk_level)
+
+    if risk_level in ["medium", "low"]:
+        return NUDGE_MESSAGES["soft"]
+
+    return None
 
 
-def match_keyword(keyword, text_lower, words, threshold):
-    """Single keyword match (no over-counting)."""
+# =========================
+# RISK DETECTION
+# =========================
 
-    if keyword in text_lower:
-        return True, keyword
-
-    # check words
-    for word in words:
-        if len(word) >= 3 and fuzz.ratio(keyword, word) >= threshold:
-            return True, f"{keyword} (~{word})"
-
-    # check phrase window
-    kw_len = len(keyword.split())
-    for i in range(len(words) - kw_len + 1):
-        phrase = " ".join(words[i:i + kw_len])
-        if fuzz.partial_ratio(keyword, phrase) >= threshold:
-            return True, f"{keyword} (~{phrase})"
-
-    return False, None
+PATTERNS = {
+    "self_harm": ["suicide","kill myself","end my life","cut myself","want to die","i want to die","better off dead"],
+    "grooming": ["dont tell","our secret","send photo","meet alone","mature for your age"],
+    "cyberbullying": ["kill yourself","loser","worthless","ugly","nobody likes you"],
+    "drugs": ["buy weed","cocaine","heroin","mdma","meth"],
+    "sextortion": ["send nudes","naked pic","blackmail","leak your pics"],
+    "scam": ["send money","bitcoin","gift card","wire transfer"]
+}
 
 
 def analyze_risk(text):
@@ -150,46 +101,32 @@ def analyze_risk(text):
 
     detected = []
 
-    for risk_type, data in PATTERNS.items():
+    for risk_type, keywords in PATTERNS.items():
         matches = 0
-        matched_keywords = set()
 
-        for keyword in data["keywords"]:
-            found, match_text = match_keyword(
-                keyword,
-                text_lower,
-                words,
-                data["fuzzy_threshold"]
-            )
-
-            if found:
+        for keyword in keywords:
+            if keyword in text_lower:
                 matches += 1
-                matched_keywords.add(match_text)
+            else:
+                for word in words:
+                    if fuzz.ratio(keyword, word) > 85:
+                        matches += 1
+                        break
 
         if matches:
-            score = normalize_score(
-                data["score_base"],
-                matches,
-                len(words)
-            )
-
-            detected.append({
-                "risk_type": risk_type,
-                "risk_score": score,
-                "matches": matches,
-                "keywords": list(matched_keywords)[:3]
-            })
+            score = min(0.5 + matches * 0.1, 1.0)
+            detected.append({"risk_type": risk_type, "score": score})
 
     if not detected:
         return {
             "risk_type": "none",
             "risk_level": "safe",
-            "risk_score": 0.0,
+            "risk_score": 0,
             "explanation": "No concerning content detected."
         }
 
-    highest = max(detected, key=lambda x: x["risk_score"])
-    score = highest["risk_score"]
+    highest = max(detected, key=lambda x: x["score"])
+    score = highest["score"]
 
     if score >= 0.8:
         level = "critical"
@@ -201,20 +138,22 @@ def analyze_risk(text):
         level = "low"
 
     explanations = {
-        "self_harm": "URGENT: Self-harm indicators detected.",
-        "grooming": "Potential grooming behavior detected.",
+        "self_harm": "Self-harm indicators detected.",
+        "grooming": "Possible grooming behavior detected.",
         "cyberbullying": "Harmful language detected.",
         "drugs": "Drug-related content detected.",
-        "sextortion": "Potential sextortion detected.",
-        "scam": "Potential financial scam detected."
+        "sextortion": "Possible sextortion detected.",
+        "scam": "Possible scam detected."
     }
+
+    nudge = get_nudge(highest["risk_type"], level)
 
     return {
         "risk_type": highest["risk_type"],
         "risk_level": level,
         "risk_score": score,
-        "explanation": explanations.get(highest["risk_type"], "Risk detected."),
-        "matched_keywords": highest["keywords"]
+        "explanation": explanations.get(highest["risk_type"]),
+        "nudge": nudge
     }
 
 
@@ -224,17 +163,7 @@ def analyze_risk(text):
 
 @app.route("/")
 def index():
-    return render_template("setup.html")
-
-
-@app.route("/child")
-def child():
     return render_template("child.html")
-
-
-@app.route("/parent")
-def parent():
-    return render_template("parent.html")
 
 
 @app.route("/api/analyze", methods=["POST"])
@@ -245,121 +174,37 @@ def analyze():
         return jsonify({"error": "Invalid JSON"}), 400
 
     text = data.get("text", "").strip()
+    sender = data.get("sender", "unknown")
+
     if not text:
         return jsonify({"error": "No text provided"}), 400
 
     analysis = analyze_risk(text)
+    analysis["sender"] = sender
 
-    try:
-        with get_db() as conn:
-            c = conn.cursor()
+    with get_db() as conn:
+        c = conn.cursor()
 
-            c.execute(
-                "SELECT monitoring_enabled, alert_threshold FROM settings WHERE id=1"
-            )
-            settings = c.fetchone() or (0, 0.6)
-            monitoring_enabled, alert_threshold = settings
+        c.execute("SELECT monitoring_enabled, alert_threshold FROM settings WHERE id=1")
+        monitoring_enabled, threshold = c.fetchone()
 
-            if monitoring_enabled and analysis["risk_score"] >= alert_threshold:
-                c.execute(
-                    """INSERT INTO alerts
-                    (timestamp, content, risk_type, risk_level, risk_score, context)
-                    VALUES (?, ?, ?, ?, ?, ?)""",
-                    (
-                        datetime.now().isoformat(),
-                        text[:500],
-                        analysis["risk_type"],
-                        analysis["risk_level"],
-                        analysis["risk_score"],
-                        analysis["explanation"]
-                    )
-                )
-    except Exception as e:
-        logging.error(f"Database error: {e}")
+        if monitoring_enabled and analysis["risk_score"] >= threshold:
+            c.execute("""
+                INSERT INTO alerts
+                (timestamp, content, sender, risk_type, risk_level, risk_score, context)
+                VALUES (?,?,?,?,?,?,?)
+            """, (
+                datetime.now().isoformat(),
+                text,
+                sender,
+                analysis["risk_type"],
+                analysis["risk_level"],
+                analysis["risk_score"],
+                analysis["explanation"]
+            ))
 
     return jsonify(analysis)
 
-
-@app.route("/api/alerts", methods=["GET"])
-def get_alerts():
-    with get_db() as conn:
-        c = conn.cursor()
-        c.execute("SELECT * FROM alerts ORDER BY timestamp DESC LIMIT 50")
-        rows = c.fetchall()
-
-    alerts = [
-        {
-            "id": r[0],
-            "timestamp": r[1],
-            "content": r[2],
-            "risk_type": r[3],
-            "risk_level": r[4],
-            "risk_score": r[5],
-            "context": r[6],
-        }
-        for r in rows
-    ]
-
-    return jsonify(alerts)
-
-
-@app.route("/api/settings", methods=["GET", "POST"])
-def settings():
-    with get_db() as conn:
-        c = conn.cursor()
-
-        if request.method == "POST":
-            data = request.get_json(silent=True) or {}
-
-            c.execute(
-                """UPDATE settings
-                   SET parent_consent=?, monitoring_enabled=?, alert_threshold=?
-                   WHERE id=1""",
-                (
-                    data.get("parent_consent", 0),
-                    data.get("monitoring_enabled", 0),
-                    data.get("alert_threshold", 0.6),
-                ),
-            )
-            return jsonify({"success": True})
-
-        c.execute("SELECT * FROM settings WHERE id=1")
-        row = c.fetchone()
-
-    if not row:
-        return jsonify({"error": "Settings not found"}), 404
-
-    return jsonify({
-        "parent_consent": row[1],
-        "monitoring_enabled": row[2],
-        "alert_threshold": row[3],
-    })
-
-
-@app.route("/api/stats", methods=["GET"])
-def stats():
-    with get_db() as conn:
-        c = conn.cursor()
-
-        c.execute("SELECT COUNT(*) FROM alerts")
-        total = c.fetchone()[0]
-
-        c.execute("SELECT COUNT(*) FROM alerts WHERE risk_level='critical'")
-        critical = c.fetchone()[0]
-
-        c.execute("SELECT risk_type, COUNT(*) FROM alerts GROUP BY risk_type")
-        breakdown = dict(c.fetchall())
-
-    return jsonify({
-        "total_alerts": total,
-        "critical_alerts": critical,
-        "risk_breakdown": breakdown
-    })
-
-
-# =========================
-# RUN
-# =========================
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
