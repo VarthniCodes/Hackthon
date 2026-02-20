@@ -20,6 +20,7 @@ def init_db():
     with get_db() as conn:
         c = conn.cursor()
 
+        # alerts table
         c.execute("""
         CREATE TABLE IF NOT EXISTS alerts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,6 +34,7 @@ def init_db():
         )
         """)
 
+        # settings table
         c.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             id INTEGER PRIMARY KEY,
@@ -42,9 +44,12 @@ def init_db():
         )
         """)
 
+        # insert default settings if not exist
         c.execute("SELECT * FROM settings WHERE id=1")
         if not c.fetchone():
-            c.execute("INSERT INTO settings VALUES (1,0,0,0.6)")
+            # monitoring ON by default
+            c.execute("INSERT INTO settings VALUES (1,1,1,0.6)")
+
 
 init_db()
 
@@ -55,7 +60,7 @@ init_db()
 
 NUDGE_MESSAGES = {
     "self_harm": {
-        "critical": "It sounds like you're going through something really painful. You don’t have to handle this alone. Please talk to a trusted adult as soon as possible. You matter more than you know.",
+        "critical": "It sounds like you're going through something really painful. You don’t have to handle this alone. Please talk to a trusted adult immediately. You matter more than you know.",
         "high": "I noticed you might be feeling overwhelmed. Talking to a trusted adult can really help. You don’t have to deal with this alone."
     },
     "cyberbullying": {
@@ -67,7 +72,7 @@ NUDGE_MESSAGES = {
     "sextortion": {
         "high": "You should never feel pressured to share personal photos. Please talk to a trusted adult immediately."
     },
-    "soft": "If any conversation makes you uncomfortable, it’s always okay to talk to a trusted adult."
+    "soft": "If any conversation makes you uncomfortable, it's always okay to talk to a trusted adult."
 }
 
 
@@ -86,12 +91,30 @@ def get_nudge(risk_type, risk_level):
 # =========================
 
 PATTERNS = {
-    "self_harm": ["suicide","kill myself","end my life","cut myself","want to die","i want to die","better off dead"],
-    "grooming": ["dont tell","our secret","send photo","meet alone","mature for your age"],
-    "cyberbullying": ["kill yourself","loser","worthless","ugly","nobody likes you"],
-    "drugs": ["buy weed","cocaine","heroin","mdma","meth"],
-    "sextortion": ["send nudes","naked pic","blackmail","leak your pics"],
-    "scam": ["send money","bitcoin","gift card","wire transfer"]
+    "self_harm": [
+        "suicide", "kill myself", "end my life",
+        "cut myself", "want to die", "i want to die",
+        "better off dead"
+    ],
+    "grooming": [
+        "dont tell", "our secret", "keep this secret",
+        "promise you wont tell", "send photo",
+        "meet alone", "mature for your age"
+    ],
+    "cyberbullying": [
+        "kill yourself", "loser", "worthless",
+        "ugly", "nobody likes you"
+    ],
+    "drugs": [
+        "buy weed", "cocaine", "heroin", "mdma", "meth"
+    ],
+    "sextortion": [
+        "send nudes", "naked pic", "blackmail",
+        "leak your pics", "share your photos"
+    ],
+    "scam": [
+        "send money", "bitcoin", "gift card", "wire transfer"
+    ]
 }
 
 
@@ -122,7 +145,8 @@ def analyze_risk(text):
             "risk_type": "none",
             "risk_level": "safe",
             "risk_score": 0,
-            "explanation": "No concerning content detected."
+            "explanation": "No concerning content detected.",
+            "nudge": None
         }
 
     highest = max(detected, key=lambda x: x["score"])
@@ -182,13 +206,22 @@ def analyze():
     analysis = analyze_risk(text)
     analysis["sender"] = sender
 
+    # Always alert for high-risk categories
+    HIGH_RISK_TYPES = ["grooming", "sextortion", "self_harm", "cyberbullying"]
+
     with get_db() as conn:
         c = conn.cursor()
 
-        c.execute("SELECT monitoring_enabled, alert_threshold FROM settings WHERE id=1")
-        monitoring_enabled, threshold = c.fetchone()
+        c.execute(
+            "SELECT monitoring_enabled, alert_threshold FROM settings WHERE id=1"
+        )
+        settings = c.fetchone() or (1, 0.6)
+        monitoring_enabled, threshold = settings
 
-        if monitoring_enabled and analysis["risk_score"] >= threshold:
+        if (
+            analysis["risk_type"] in HIGH_RISK_TYPES or
+            (monitoring_enabled and analysis["risk_score"] >= threshold)
+        ):
             c.execute("""
                 INSERT INTO alerts
                 (timestamp, content, sender, risk_type, risk_level, risk_score, context)
@@ -205,6 +238,34 @@ def analyze():
 
     return jsonify(analysis)
 
+
+@app.route("/api/alerts", methods=["GET"])
+def get_alerts():
+    with get_db() as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM alerts ORDER BY timestamp DESC LIMIT 50")
+        rows = c.fetchall()
+
+    alerts = [
+        {
+            "id": r[0],
+            "timestamp": r[1],
+            "content": r[2],
+            "sender": r[3],
+            "risk_type": r[4],
+            "risk_level": r[5],
+            "risk_score": r[6],
+            "context": r[7],
+        }
+        for r in rows
+    ]
+
+    return jsonify(alerts)
+
+
+# =========================
+# RUN
+# =========================
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
