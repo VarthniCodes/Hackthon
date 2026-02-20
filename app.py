@@ -7,20 +7,23 @@ from datetime import datetime
 app = Flask(__name__)
 DB_NAME = "safety.db"
 
-# =========================
-# LOAD AI MODEL (runs locally)
-# =========================
+# =====================================================
+# LOAD AI MODEL (Meaning Detection)
+# =====================================================
 
-print("Loading AI safety model...")
-ai_classifier = pipeline("text-classification",
-                         model="unitary/toxic-bert",
-                         top_k=None)
+print("Loading AI safety model (first run may take time)...")
+
+ai_classifier = pipeline(
+    "text-classification",
+    model="unitary/toxic-bert",
+    top_k=None
+)
+
 print("AI model ready")
 
-
-# =========================
+# =====================================================
 # DATABASE
-# =========================
+# =====================================================
 
 def get_db():
     return sqlite3.connect(DB_NAME)
@@ -45,24 +48,33 @@ def init_db():
 
 init_db()
 
-
-# =========================
-# KEYWORD RULES
-# =========================
+# =====================================================
+# KEYWORD PATTERNS
+# =====================================================
 
 PATTERNS = {
-    "self_harm": ["suicide", "kill myself", "want to die", "end my life", "cut myself"],
-    "grooming": ["dont tell", "our secret", "keep this secret", "meet alone", "send photo"],
-    "cyberbullying": ["worthless", "loser", "ugly", "kill yourself"],
-    "sextortion": ["send nudes", "naked pic", "leak your pics"],
+    "self_harm": [
+        "suicide", "kill myself", "want to die", "end my life",
+        "cut myself", "i cant go on", "i feel hopeless"
+    ],
+    "grooming": [
+        "dont tell", "our secret", "keep this secret",
+        "keep this between us", "meet alone", "send photo"
+    ],
+    "cyberbullying": [
+        "worthless", "loser", "ugly", "kill yourself",
+        "you are nothing", "stupid", "idiot"
+    ],
+    "sextortion": [
+        "send nudes", "naked pic", "leak your pics"
+    ],
     "drugs": ["buy weed", "cocaine", "heroin"],
     "scam": ["send money", "bitcoin", "gift card"]
 }
 
-
-# =========================
+# =====================================================
 # 1️⃣ KEYWORD DETECTION
-# =========================
+# =====================================================
 
 def keyword_detection(text):
     text_lower = text.lower()
@@ -70,14 +82,13 @@ def keyword_detection(text):
     for risk, words in PATTERNS.items():
         for word in words:
             if word in text_lower:
-                return {"risk_type": risk, "score": 0.7}
+                return {"risk_type": risk, "score": 0.75}
 
     return {"risk_type": "none", "score": 0}
 
-
-# =========================
+# =====================================================
 # 2️⃣ FUZZY DETECTION (TYPO HANDLING)
-# =========================
+# =====================================================
 
 def fuzzy_detection(text):
     text_lower = text.lower()
@@ -87,14 +98,13 @@ def fuzzy_detection(text):
         for keyword in keywords:
             for word in words:
                 if fuzz.partial_ratio(keyword, word) > 85:
-                    return {"risk_type": risk, "score": 0.6}
+                    return {"risk_type": risk, "score": 0.65}
 
     return {"risk_type": "none", "score": 0}
 
-
-# =========================
+# =====================================================
 # 3️⃣ AI MEANING DETECTION
-# =========================
+# =====================================================
 
 def ai_detection(text):
     try:
@@ -109,10 +119,9 @@ def ai_detection(text):
     except:
         return {"risk_type": "none", "score": 0}
 
-
-# =========================
-# FINAL HYBRID SCORING
-# =========================
+# =====================================================
+# HYBRID RISK ENGINE
+# =====================================================
 
 def analyze_risk(text):
 
@@ -121,7 +130,6 @@ def analyze_risk(text):
     ai_result = ai_detection(text)
 
     results = [keyword_result, fuzzy_result, ai_result]
-
     best = max(results, key=lambda x: x["score"])
 
     score = best["score"]
@@ -141,20 +149,80 @@ def analyze_risk(text):
         "risk_level": level
     }
 
+# =====================================================
+# INTERVENTION ENGINE (CORE SAFETY LOGIC)
+# =====================================================
 
-# =========================
+def decide_action(risk, sender):
+
+    risk_type = risk["risk_type"]
+    level = risk["risk_level"]
+
+    action = {
+        "child_nudge": None,
+        "parent_alert": False
+    }
+
+    # --------------------------------
+    # CHILD DISTRESS / SELF HARM
+    # --------------------------------
+    if sender == "child" and risk_type == "self_harm":
+        action["child_nudge"] = (
+            "It sounds like you're going through something difficult. "
+            "You don’t have to handle this alone. Please talk to a trusted adult."
+        )
+        action["parent_alert"] = True
+
+    # --------------------------------
+    # STRANGER BULLYING CHILD
+    # --------------------------------
+    elif sender == "stranger" and risk_type == "cyberbullying":
+        action["child_nudge"] = (
+            "The way someone is speaking to you isn’t okay. "
+            "You deserve respect. Consider telling a trusted adult."
+        )
+        action["parent_alert"] = True
+
+    # --------------------------------
+    # CHILD BULLYING OTHERS
+    # --------------------------------
+    elif sender == "child" and risk_type == "cyberbullying":
+        action["child_nudge"] = (
+            "Some messages can hurt more than we realize. "
+            "Take a moment before sending messages."
+        )
+
+    # --------------------------------
+    # GROOMING / SEXTORTION
+    # --------------------------------
+    elif sender == "stranger" and risk_type in ["grooming", "sextortion"]:
+        action["child_nudge"] = (
+            "You should never keep secrets from trusted adults or share personal information. "
+            "Please talk to a parent or trusted adult."
+        )
+        action["parent_alert"] = True
+
+    # --------------------------------
+    # MEDIUM EMOTIONAL DISTRESS
+    # --------------------------------
+    elif sender == "child" and level == "medium":
+        action["child_nudge"] = (
+            "It seems you might be feeling upset. Talking to someone you trust can help."
+        )
+
+    return action
+
+# =====================================================
 # ROUTES
-# =========================
+# =====================================================
 
 @app.route("/")
 def home():
     return render_template("child.html")
 
-
 @app.route("/parent")
 def parent():
     return render_template("parent.html")
-
 
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
@@ -163,9 +231,11 @@ def analyze():
     text = data.get("text", "")
     sender = data.get("sender", "unknown")
 
-    result = analyze_risk(text)
+    risk = analyze_risk(text)
+    action = decide_action(risk, sender)
 
-    if result["risk_level"] in ["high", "critical"]:
+    # STORE ALERT IF REQUIRED
+    if action["parent_alert"]:
         conn = get_db()
         c = conn.cursor()
         c.execute("""
@@ -175,20 +245,23 @@ def analyze():
             datetime.now().isoformat(),
             text,
             sender,
-            result["risk_type"],
-            result["risk_score"]
+            risk["risk_type"],
+            risk["risk_score"]
         ))
         conn.commit()
         conn.close()
 
-    return jsonify(result)
-
+    return jsonify({
+        **risk,
+        **action
+    })
 
 @app.route("/api/alerts")
 def get_alerts():
+
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT * FROM alerts ORDER BY timestamp DESC LIMIT 20")
+    c.execute("SELECT * FROM alerts ORDER BY timestamp DESC LIMIT 50")
     rows = c.fetchall()
     conn.close()
 
@@ -200,9 +273,13 @@ def get_alerts():
             "sender": r[3],
             "risk_type": r[4],
             "risk_score": r[5]
-        } for r in rows
+        }
+        for r in rows
     ])
 
+# =====================================================
+# RUN APP
+# =====================================================
 
 if __name__ == "__main__":
     app.run(debug=True)
